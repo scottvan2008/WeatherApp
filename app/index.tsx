@@ -1148,15 +1148,37 @@ export default function Index() {
                                 {/* Authentication section - Changed to conditionally render Sign In or Sign Out */}
                                 <View style={styles.authContainer}>
                                     {isSignedIn ? (
-                                        // User is signed in - show welcome and sign out button
+                                        // User is signed in - show welcome, my locations, and sign out buttons
                                         <>
                                             <Text style={styles.authTitle}>
                                                 Welcome, {username}
                                             </Text>
                                             <TouchableOpacity
+                                                style={styles.myLocationsButton}
+                                                onPress={() =>
+                                                    router.push("/tabs/welcome")
+                                                }
+                                            >
+                                                <Icon
+                                                    name="map-marker-multiple"
+                                                    size={18}
+                                                    color="white"
+                                                    style={styles.buttonIcon}
+                                                />
+                                                <Text style={styles.buttonText}>
+                                                    My Locations
+                                                </Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
                                                 style={styles.signOutButton}
                                                 onPress={handleSignOut}
                                             >
+                                                <Icon
+                                                    name="logout"
+                                                    size={18}
+                                                    color="white"
+                                                    style={styles.buttonIcon}
+                                                />
                                                 <Text style={styles.buttonText}>
                                                     Sign Out
                                                 </Text>
@@ -1722,6 +1744,8 @@ const styles = StyleSheet.create({
         paddingHorizontal: 24,
         width: "100%",
         alignItems: "center",
+        flexDirection: "row",
+        justifyContent: "center",
     },
     buttonText: {
         color: "white",
@@ -1942,5 +1966,19 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: "600",
         marginLeft: 8,
+    },
+    myLocationsButton: {
+        backgroundColor: "#4FC3F7",
+        borderRadius: 8,
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        width: "100%",
+        alignItems: "center",
+        marginBottom: 12,
+        flexDirection: "row",
+        justifyContent: "center",
+    },
+    buttonIcon: {
+        marginRight: 8,
     },
 });

@@ -21,13 +21,22 @@ import * as Location from "expo-location";
 import MapView, { Marker } from "react-native-maps";
 import { LinearGradient } from "expo-linear-gradient";
 
-// Interface for saved location
+// Interface for weather data
+interface WeatherData {
+    temperature: number;
+    weathercode: number;
+    is_day: number;
+}
+
+// Interface for saved location with weather
 interface SavedLocation {
     id: string;
     name: string;
     latitude: number;
     longitude: number;
     created_at: string;
+    weather?: WeatherData;
+    isLoadingWeather?: boolean;
 }
 
 // Interface for search result
@@ -36,6 +45,12 @@ interface SearchResult {
     country: string;
     latitude: number;
     longitude: number;
+}
+
+// Interface for weather info
+interface WeatherInfo {
+    description: string;
+    icon: string;
 }
 
 const Welcome: React.FC = () => {
@@ -116,7 +131,20 @@ const Welcome: React.FC = () => {
                 console.error("Error fetching saved locations:", error);
                 Alert.alert("Error", "Unable to fetch your saved locations.");
             } else {
-                setSavedLocations(data || []);
+                // Add isLoadingWeather flag to each location
+                const locationsWithWeatherStatus = (data || []).map(
+                    (location) => ({
+                        ...location,
+                        isLoadingWeather: true,
+                    })
+                );
+
+                setSavedLocations(locationsWithWeatherStatus);
+
+                // Fetch weather for all locations
+                if (locationsWithWeatherStatus.length > 0) {
+                    fetchWeatherForLocations(locationsWithWeatherStatus);
+                }
             }
         } catch (error) {
             console.error("Error in fetchSavedLocations:", error);
@@ -126,7 +154,84 @@ const Welcome: React.FC = () => {
         }
     };
 
-    // Refresh saved locations
+    // Fetch weather data for all locations
+    const fetchWeatherForLocations = async (locations: SavedLocation[]) => {
+        const updatedLocations = [...locations];
+
+        // Process locations in batches to avoid too many simultaneous requests
+        const batchSize = 3;
+        for (let i = 0; i < updatedLocations.length; i += batchSize) {
+            const batch = updatedLocations.slice(i, i + batchSize);
+
+            // Create an array of promises for the current batch
+            const promises = batch.map((location) =>
+                fetchWeatherForLocation(location.latitude, location.longitude)
+                    .then((weatherData) => {
+                        if (weatherData) {
+                            const locationIndex = updatedLocations.findIndex(
+                                (loc) => loc.id === location.id
+                            );
+                            if (locationIndex !== -1) {
+                                updatedLocations[locationIndex] = {
+                                    ...updatedLocations[locationIndex],
+                                    weather: weatherData,
+                                    isLoadingWeather: false,
+                                };
+                            }
+                        }
+                    })
+                    .catch((error) => {
+                        console.error(
+                            `Error fetching weather for ${location.name}:`,
+                            error
+                        );
+                        const locationIndex = updatedLocations.findIndex(
+                            (loc) => loc.id === location.id
+                        );
+                        if (locationIndex !== -1) {
+                            updatedLocations[locationIndex] = {
+                                ...updatedLocations[locationIndex],
+                                isLoadingWeather: false,
+                            };
+                        }
+                    })
+            );
+
+            // Wait for all promises in the current batch to resolve
+            await Promise.all(promises);
+
+            // Update state after each batch
+            setSavedLocations([...updatedLocations]);
+        }
+    };
+
+    // Fetch weather for a single location
+    const fetchWeatherForLocation = async (
+        latitude: number,
+        longitude: number
+    ): Promise<WeatherData | null> => {
+        try {
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weathercode,is_day&timezone=auto`;
+
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            return {
+                temperature: data.current.temperature_2m,
+                weathercode: data.current.weathercode,
+                is_day: data.current.is_day,
+            };
+        } catch (error) {
+            console.error("Error fetching weather data:", error);
+            return null;
+        }
+    };
+
+    // Refresh saved locations and weather
     const handleRefresh = () => {
         setRefreshing(true);
         if (userId) {
@@ -293,8 +398,8 @@ const Welcome: React.FC = () => {
         router.push({
             pathname: "/",
             params: {
-                latitude: location.latitude,
-                longitude: location.longitude,
+                latitude: location.latitude.toString(),
+                longitude: location.longitude.toString(),
                 locationName: location.name,
             },
         });
@@ -365,6 +470,143 @@ const Welcome: React.FC = () => {
         }
     };
 
+    // Get weather info based on weather code
+    const getWeatherInfo = (
+        weatherCode: number,
+        isDay: number = 1
+    ): WeatherInfo => {
+        const weatherMap: { [key: number]: WeatherInfo } = {
+            0: {
+                description: "Clear sky",
+                icon: isDay ? "weather-sunny" : "weather-night",
+            },
+            1: {
+                description: "Mainly clear",
+                icon: isDay
+                    ? "weather-partly-cloudy"
+                    : "weather-night-partly-cloudy",
+            },
+            2: {
+                description: "Partly cloudy",
+                icon: isDay
+                    ? "weather-partly-cloudy"
+                    : "weather-night-partly-cloudy",
+            },
+            3: {
+                description: "Overcast",
+                icon: "weather-cloudy",
+            },
+            45: {
+                description: "Fog",
+                icon: "weather-fog",
+            },
+            48: {
+                description: "Depositing rime fog",
+                icon: "weather-fog",
+            },
+            51: {
+                description: "Light drizzle",
+                icon: "weather-rainy",
+            },
+            53: {
+                description: "Moderate drizzle",
+                icon: "weather-rainy",
+            },
+            55: {
+                description: "Heavy drizzle",
+                icon: "weather-pouring",
+            },
+            56: {
+                description: "Light freezing drizzle",
+                icon: "weather-snowy-rainy",
+            },
+            57: {
+                description: "Heavy freezing drizzle",
+                icon: "weather-snowy-rainy",
+            },
+            61: {
+                description: "Light rain",
+                icon: "weather-rainy",
+            },
+            63: {
+                description: "Moderate rain",
+                icon: "weather-rainy",
+            },
+            65: {
+                description: "Heavy rain",
+                icon: "weather-pouring",
+            },
+            66: {
+                description: "Light freezing rain",
+                icon: "weather-snowy-rainy",
+            },
+            67: {
+                description: "Heavy freezing rain",
+                icon: "weather-snowy-rainy",
+            },
+            71: {
+                description: "Light snow",
+                icon: "weather-snowy",
+            },
+            73: {
+                description: "Moderate snow",
+                icon: "weather-snowy",
+            },
+            75: {
+                description: "Heavy snow",
+                icon: "weather-snowy-heavy",
+            },
+            77: {
+                description: "Snow grains",
+                icon: "weather-snowy",
+            },
+            80: {
+                description: "Light rain showers",
+                icon: "weather-rainy",
+            },
+            81: {
+                description: "Moderate rain showers",
+                icon: "weather-rainy",
+            },
+            82: {
+                description: "Heavy rain showers",
+                icon: "weather-pouring",
+            },
+            85: {
+                description: "Light snow showers",
+                icon: "weather-snowy",
+            },
+            86: {
+                description: "Heavy snow showers",
+                icon: "weather-snowy-heavy",
+            },
+            95: {
+                description: "Thunderstorm",
+                icon: "weather-lightning",
+            },
+            96: {
+                description: "Thunderstorm with light hail",
+                icon: "weather-lightning-rainy",
+            },
+            99: {
+                description: "Thunderstorm with heavy hail",
+                icon: "weather-hail",
+            },
+        };
+
+        const defaultInfo = {
+            description: "Unknown",
+            icon: "weather-cloudy",
+        };
+
+        return weatherMap[weatherCode] || defaultInfo;
+    };
+
+    // Format temperature
+    const formatTemperature = (celsius: number) => {
+        return `${Math.round(celsius)}°C`;
+    };
+
     // Calculate add location panel position
     const addLocationPanelHeight = addLocationAnimation.interpolate({
         inputRange: [0, 1],
@@ -390,53 +632,87 @@ const Welcome: React.FC = () => {
     };
 
     // Render location item
-    const renderLocationItem = ({ item }: { item: SavedLocation }) => (
-        <View style={styles.locationCard}>
-            <View style={styles.locationInfo}>
-                <Text style={styles.locationName}>{item.name}</Text>
-                <Text style={styles.locationDate}>
-                    Saved on {formatDate(item.created_at)}
-                </Text>
+    const renderLocationItem = ({ item }: { item: SavedLocation }) => {
+        const weatherInfo = item.weather
+            ? getWeatherInfo(item.weather.weathercode, item.weather.is_day)
+            : null;
+
+        return (
+            <View style={styles.locationCard}>
+                <View style={styles.locationInfo}>
+                    <Text style={styles.locationName}>{item.name}</Text>
+                    <Text style={styles.locationDate}>
+                        Saved on {formatDate(item.created_at)}
+                    </Text>
+                </View>
+
+                {/* Weather information */}
+                <View style={styles.weatherInfo}>
+                    {item.isLoadingWeather ? (
+                        <ActivityIndicator size="small" color="#4da0b0" />
+                    ) : item.weather ? (
+                        <>
+                            <View style={styles.weatherIconContainer}>
+                                <Icon
+                                    name={weatherInfo?.icon || "weather-cloudy"}
+                                    size={24}
+                                    color="#4da0b0"
+                                />
+                                <Text style={styles.weatherDescription}>
+                                    {weatherInfo?.description}
+                                </Text>
+                            </View>
+                            <Text style={styles.temperature}>
+                                {formatTemperature(item.weather.temperature)}
+                            </Text>
+                        </>
+                    ) : (
+                        <Text style={styles.weatherUnavailable}>
+                            Weather unavailable
+                        </Text>
+                    )}
+                </View>
+
+                <View style={styles.locationActions}>
+                    <TouchableOpacity
+                        style={styles.locationAction}
+                        onPress={() => toggleMap(item)}
+                    >
+                        <Icon name="map" size={20} color="#4da0b0" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.locationAction}
+                        onPress={() => viewWeather(item)}
+                    >
+                        <Icon
+                            name="weather-partly-cloudy"
+                            size={20}
+                            color="#4da0b0"
+                        />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.locationAction}
+                        onPress={() => {
+                            Alert.alert(
+                                "Delete Location",
+                                `Are you sure you want to delete ${item.name}?`,
+                                [
+                                    { text: "Cancel", style: "cancel" },
+                                    {
+                                        text: "Delete",
+                                        onPress: () => deleteLocation(item.id),
+                                        style: "destructive",
+                                    },
+                                ]
+                            );
+                        }}
+                    >
+                        <Icon name="delete" size={20} color="#e53e3e" />
+                    </TouchableOpacity>
+                </View>
             </View>
-            <View style={styles.locationActions}>
-                <TouchableOpacity
-                    style={styles.locationAction}
-                    onPress={() => toggleMap(item)}
-                >
-                    <Icon name="map" size={20} color="#4da0b0" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={styles.locationAction}
-                    onPress={() => viewWeather(item)}
-                >
-                    <Icon
-                        name="weather-partly-cloudy"
-                        size={20}
-                        color="#4da0b0"
-                    />
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={styles.locationAction}
-                    onPress={() => {
-                        Alert.alert(
-                            "Delete Location",
-                            `Are you sure you want to delete ${item.name}?`,
-                            [
-                                { text: "Cancel", style: "cancel" },
-                                {
-                                    text: "Delete",
-                                    onPress: () => deleteLocation(item.id),
-                                    style: "destructive",
-                                },
-                            ]
-                        );
-                    }}
-                >
-                    <Icon name="delete" size={20} color="#e53e3e" />
-                </TouchableOpacity>
-            </View>
-        </View>
-    );
+        );
+    };
 
     // Render empty state
     const renderEmptyState = () => (
@@ -841,12 +1117,38 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: "#718096",
     },
+    weatherInfo: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingVertical: 10,
+        borderTopWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: "#EDF2F7",
+        marginBottom: 10,
+    },
+    weatherIconContainer: {
+        flexDirection: "row",
+        alignItems: "center",
+    },
+    weatherDescription: {
+        fontSize: 14,
+        color: "#4A5568",
+        marginLeft: 8,
+    },
+    temperature: {
+        fontSize: 18,
+        fontWeight: "bold",
+        color: "#4da0b0",
+    },
+    weatherUnavailable: {
+        fontSize: 14,
+        color: "#A0AEC0",
+        fontStyle: "italic",
+    },
     locationActions: {
         flexDirection: "row",
         justifyContent: "flex-end",
-        borderTopWidth: 1,
-        borderTopColor: "#EDF2F7",
-        paddingTop: 10,
     },
     locationAction: {
         padding: 8,
